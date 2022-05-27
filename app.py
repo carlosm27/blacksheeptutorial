@@ -1,93 +1,77 @@
-import typing as t
+import typing
 
-
-from piccolo_api.crud.serializers import create_pydantic_model
+from piccolo.utils.pydantic import create_pydantic_model
 from piccolo.engine import engine_finder
 
-from blacksheep.server import Application
-from blacksheep.server.bindings import FromJSON
-from blacksheep.server.responses import json
+from blacksheep import Application, FromJSON, json, status_code
 
-from home.tables import Task
-
+from bs_api.tables import Expense
 
 app = Application()
 
+ExpenseModelIn: typing.Any = create_pydantic_model(table=Expense, model_name=" ExpenseModelIn")
 
+ExpenseModelOut: typing.Any = create_pydantic_model(table=Expense, include_default_columns=True, model_name=" ExpenseModelIn")
 
-
-
-TaskModelIn: t.Any = create_pydantic_model(table=Task, model_name="TaskModelIn")
-TaskModelOut: t.Any = create_pydantic_model(
-    table=Task, include_default_columns=True, model_name="TaskModelOut"
-)
-TaskModelPartial: t.Any = create_pydantic_model(
-    table=Task, model_name="TaskModelPartial", all_optional=True
+ExpenseModelPartial: typing.Any = create_pydantic_model(
+    table=Expense, model_name="ExpenseModelPartial", all_optional=True
 )
 
+@app.router.get("/expenses")
+async def expenses() -> typing.List[ExpenseModelOut]:
+    return await Expense.select()
 
-@app.router.get("/tasks/")
-async def tasks() -> t.List[TaskModelOut]:
-    return await Task.select()
+@app.router.get("/expense/{id}")
+async def expense(id: int) -> typing.List[ExpenseModelOut]:
+    expense = await Expense.select().where(id==Expense.id)
+    if not expense:
+        return json({}, status=status_code(404))
+    return expense
 
-@app.router.get("/task/{task_id}")
-async def task(task_id: int) ->t.List[TaskModelOut]:
-    task = await Task.select().where(task_id==Task.id)
-    if not task:
-        return json({}, status=404)
-    return task
+@app.router.post("/expense")
+async def create_expense(expense_model: FromJSON[ExpenseModelIn]) -> ExpenseModelOut:
+    expense = Expense(**expense_model.value.dict())
+    await expense.save()
+    return ExpenseModelOut(**expense.to_dict())
 
+@app.router.patch("expense/{id}")
+async def patch_expense(
+        id: int, expense_model: FromJSON[ExpenseModelPartial]
+) -> ExpenseModelOut:
+    expense = await Expense.objects().get(Expense.id == id)
+    if not expense:
+        return json({}, status = 404)
 
-@app.router.post("/tasks/")
-async def create_task(task_model: FromJSON[TaskModelIn]) -> TaskModelOut:
-    task = Task(**task_model.value.dict())
-    await task.save()
-    return TaskModelOut(**task.to_dict())
-
-
-@app.router.put("/tasks/{task_id}/")
-async def put_task(
-    task_id: int, task_model: FromJSON[TaskModelIn]
-) -> TaskModelOut:
-    task = await Task.objects().get(Task.id == task_id)
-    if not task:
-        return json({}, status=404)
-
-    for key, value in task_model.value.dict().items():
-        setattr(task, key, value)
-
-    await task.save()
-
-    return TaskModelOut(**task.to_dict())
-
-
-@app.router.patch("/tasks/{task_id}/")
-async def patch_task(
-    task_id: int, task_model: FromJSON[TaskModelPartial]
-) -> TaskModelOut:
-    task = await Task.objects().get(Task.id == task_id)
-    if not task:
-        return json({}, status=404)
-
-    for key, value in task_model.value.dict().items():
+    for key, value in expense_model.value.dict().items():
         if value is not None:
-            setattr(task, key, value)
+            setattr(expense, key, value)
 
-    await task.save()
+    await expense.save()
+    return ExpenseModelOut(**expense.to_dict())
 
-    return TaskModelOut(**task.to_dict())
 
+@app.router.put("/expenses/{id}")
+async def put_expense(
+        id: int, expense_model: FromJSON[ExpenseModelIn]
+) -> ExpenseModelOut:
+    expense = await Expense.objects().get(Expense.id == id)
+    if not expense:
+        return json({}, status = 404)
 
-@app.router.delete("/tasks/{task_id}/")
-async def delete_task(task_id: int):
-    task = await Task.objects().get(Task.id == task_id)
-    if not task:
+    for key, value in expense_model.value.dict().items():
+        if value is not None:
+            setattr(expense, key, value)
+
+    await expense.save()
+    return ExpenseModelOut(**expense.to_dict())
+
+@app.router.delete("/expense/{id}")
+async def delete_expense(id: int):
+    expense = await Expense.objects().get(Expense.id == id)
+    if not expense:
         return json({}, status=404)
-
-    await task.remove()
-
+    await expense.remove()
     return json({})
-
 
 async def open_database_connection_pool(application):
     try:
